@@ -9,7 +9,7 @@ Remove-AzResourceGroup -Name demoRG
 ## Push to ACR
 
 ```
-az acr credential show --resource-group demoRG --name malliinaDemoAcr
+Get-AzContainerRegistryCredential -ResourceGroupName demoRG -Name malliinaDemoAcr
 docker login malliinaDemoAcr.azurecr.io --username malliinaDemoAcr
 docker tag malliina/app:1.0.0 malliinaDemoAcr.azurecr.io/demo:latest
 docker push malliinaDemoAcr.azurecr.io/demo:latest
@@ -18,10 +18,10 @@ docker push malliinaDemoAcr.azurecr.io/demo:latest
 ## Database and Passwords
 
 ```
-az keyvault create --name DemoVault --resource-group demoRG --location northeurope --enabled-for-template-deployment true
-az keyvault secret set --vault-name DemoVault --name "DatabasePassword" --value "secret-password-here"
-
-New-AzResourceGroupDeployment -ResourceGroupName demoRG -TemplateFile ./database.bicep
+New-AzResourceGroupDeployment -ResourceGroupName demoRG -TemplateFile ./vault.bicep
+$Secret = ConvertTo-SecureString -String 'secret-password-here' -AsPlainText -Force
+Set-AzKeyVaultSecret -VaultName 'vault-name-here' -Name 'databasePass' -SecretValue $Secret
+New-AzResourceGroupDeployment -ResourceGroupName demoRG -TemplateFile ./database-vault.bicep
 ```
 
 ## Bicep Tutorial
