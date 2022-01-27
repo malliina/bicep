@@ -1,10 +1,9 @@
 param location string = resourceGroup().location
 param resourceGroupName string = resourceGroup().name
 param dockerImageAndTag string = 'demo:latest'
-param acrName string = 'malliinaDemoAcr'
 param hostname string = 'bicep.malliina.site'
 param uniqueId string = uniqueString(resourceGroup().id)
-
+param acrName string = 'acr${uniqueId}'
 param siteName string = 'site-${uniqueId}'
 
 @description('Name of the CDN Profile')
@@ -18,7 +17,7 @@ param customDomainName string = 'custom-domain-${uniqueId}'
 var websiteName = '${siteName}-site'
 var acrRegistry = '${acrName}.azurecr.io'
 
-param utcValue string = utcNow()
+// param utcValue string = utcNow()
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2021-09-01' = {
   name: acrName
@@ -82,40 +81,6 @@ resource site 'Microsoft.Web/sites@2020-06-01' = {
   }
 }
 
-// Adapted from https://github.com/Azure/bicep/blob/main/docs/examples/301/function-app-with-custom-domain-managed-certificate/main.bicep
-// Not used when CDN is used, since CDN manages certificates
-
-// resource siteCustomDomain 'Microsoft.Web/sites/hostNameBindings@2021-02-01' = {
-//   name: '${site.name}/${hostname}'
-//   properties: {
-//     hostNameType: 'Verified'
-//     sslState: 'Disabled'
-//     customHostNameDnsRecordType: 'CName'
-//     siteName: site.name
-//   }
-// }
-
-// resource certificate 'Microsoft.Web/certificates@2021-02-01' = {
-//   name: hostname
-//   location: location
-//   dependsOn: [
-//     siteCustomDomain
-//   ]
-//   properties: {
-//     canonicalName: hostname
-//     serverFarmId: appServicePlan.id
-//   }
-// }
-
-// module siteEnableSni 'sni-enable.bicep' = {
-//   name: '${deployment().name}-${siteName}-sni-enable'
-//   params: {
-//     certificateThumbprint: certificate.properties.thumbprint
-//     hostname: hostname
-//     siteName: site.name
-//   }
-// }
-
 resource analyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2021-06-01' = {
   name: 'demo-workspace'
   location: location
@@ -170,6 +135,36 @@ resource cdnEndpoint 'Microsoft.Cdn/profiles/endpoints@2020-09-01' = {
     originHostHeader: site.properties.defaultHostName
     isHttpAllowed: true
     isHttpsAllowed: true
+    deliveryPolicy: {
+      rules: [
+        {
+          name: 'httpsonly'
+          conditions: [
+            {
+              name: 'RequestScheme'
+              parameters: {
+                operator: 'Equal'
+                matchValues: [
+                  'HTTP'
+                ]
+                '@odata.type': '#Microsoft.Azure.Cdn.Models.DeliveryRuleRequestSchemeConditionParameters'
+              }
+            }
+          ]
+          actions: [
+            { 
+              name: 'UrlRedirect'
+              parameters: {
+                redirectType: 'TemporaryRedirect'
+                destinationProtocol: 'Https'
+                '@odata.type': '#Microsoft.Azure.Cdn.Models.DeliveryRuleUrlRedirectActionParameters'
+              }
+            }
+          ]
+          order: 1
+        }
+      ]
+    }
     origins: [
       {
         name: 'server'
@@ -189,13 +184,41 @@ resource cdnCustomDomain 'Microsoft.Cdn/profiles/endpoints/customDomains@2020-09
   }
 }
 
+// https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
+resource contributorRoleDefinition 'Microsoft.Authorization/roleDefinitions@2018-01-01-preview' existing = {
+  name: 'b24988ac-6180-42a0-ab88-20f7382dd24c'
+}
+
+// https://github.com/Azure/azure-quickstart-templates/blob/e6e50ae57a2613858b37af1c3e95dfe93733bd4c/quickstarts/microsoft.storage/storage-static-website/main.bicep#L47
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-11-30' = {
+  name: 'DeploymentScript'
+  location: location
+}
+
+// https://github.com/Azure/azure-docs-bicep-samples/blob/main/samples/deployment-script/deploymentscript-keyvault-mi.bicep
+resource managedIdentityRole 'Microsoft.Authorization/roleAssignments@2021-04-01-preview' = {
+  name: guid(resourceGroup().id, managedIdentity.id, contributorRoleDefinition.id)
+  properties: {
+    principalId: managedIdentity.properties.principalId
+    roleDefinitionId: contributorRoleDefinition.id
+    scope: resourceGroup().id
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // didn't find a way to enable custom https for cdn using arm resources, so a script will have to do
 resource cdnEnableCustomHttps 'Microsoft.Resources/deploymentScripts@2020-10-01' = {
   name: 'cdn-https-${uniqueId}'
   location: location
   kind: 'AzurePowerShell'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {}
+    }
+  }
   properties: {
-    forceUpdateTag: utcValue
+    // forceUpdateTag: utcValue
     azPowerShellVersion: '6.4'
     scriptContent: loadTextContent('./scripts/enable-https.ps1')
     environmentVariables: [

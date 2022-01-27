@@ -1,8 +1,17 @@
 # Bicep
 
+To deploy:
+
 ```
 New-AzResourceGroup -Name demoRG -Location northeurope
 New-AzResourceGroupDeployment -ResourceGroupName demoRG -TemplateFile ./webapp.bicep
+```
+
+Add a CNAME record to your CDN endpoint address *changeme*.azureedge.net, then try again.
+
+To cleanup:
+
+```
 Remove-AzResourceGroup -Name demoRG
 ```
 
