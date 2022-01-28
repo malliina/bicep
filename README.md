@@ -18,10 +18,10 @@ Remove-AzResourceGroup -Name demoRG
 ## Push to ACR
 
 ```
-Get-AzContainerRegistryCredential -ResourceGroupName demoRG -Name malliinaDemoAcr
-docker login malliinaDemoAcr.azurecr.io --username malliinaDemoAcr
-docker tag malliina/app:1.0.0 malliinaDemoAcr.azurecr.io/demo:latest
-docker push malliinaDemoAcr.azurecr.io/demo:latest
+Get-AzContainerRegistryCredential -ResourceGroupName demoRG -Name abc
+docker login abc.azurecr.io --username abc
+docker tag malliina/app:1.1.0 abc.azurecr.io/demo:latest
+docker push abc.azurecr.io/demo:latest
 ```
 
 ## Database and Passwords

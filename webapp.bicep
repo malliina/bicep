@@ -6,18 +6,10 @@ param uniqueId string = uniqueString(resourceGroup().id)
 param acrName string = 'acr${uniqueId}'
 param siteName string = 'site-${uniqueId}'
 
-@description('Name of the CDN Profile')
-param profileName string = 'cdn-${uniqueId}'
-
-@description('Name of the CDN Endpoint, must be unique')
-param endpointName string = 'endpoint-${uniqueId}'
-
-param customDomainName string = 'custom-domain-${uniqueId}'
-
 var websiteName = '${siteName}-site'
 var acrRegistry = '${acrName}.azurecr.io'
 
-// param utcValue string = utcNow()
+param utcValue string = utcNow()
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2021-09-01' = {
   name: acrName
@@ -120,7 +112,7 @@ resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-pr
 }
 
 resource cdnProfile 'Microsoft.Cdn/profiles@2020-09-01' = {
-  name: profileName
+  name: 'cdn-ms-${uniqueId}'
   location: location
   sku: {
     name: 'Standard_Microsoft'
@@ -129,16 +121,18 @@ resource cdnProfile 'Microsoft.Cdn/profiles@2020-09-01' = {
 
 resource cdnEndpoint 'Microsoft.Cdn/profiles/endpoints@2020-09-01' = {
   parent: cdnProfile
-  name: endpointName
+  name: 'endpoint-demo-${uniqueId}'
   location: location
   properties: {
     originHostHeader: site.properties.defaultHostName
-    isHttpAllowed: true
+    isHttpAllowed: false
     isHttpsAllowed: true
+    queryStringCachingBehavior: 'UseQueryString'
     deliveryPolicy: {
       rules: [
         {
           name: 'httpsonly'
+          order: 1
           conditions: [
             {
               name: 'RequestScheme'
@@ -161,7 +155,33 @@ resource cdnEndpoint 'Microsoft.Cdn/profiles/endpoints@2020-09-01' = {
               }
             }
           ]
-          order: 1
+        }
+        {
+          name: 'onlyassets'
+          order: 2
+          conditions: [
+            {
+              name: 'UrlPath'
+              parameters: {
+                matchValues: [
+                  '/assets/'
+                ]
+                operator: 'BeginsWith'
+                negateCondition: true
+                '@odata.type': '#Microsoft.Azure.Cdn.Models.DeliveryRuleUrlPathMatchConditionParameters'
+              }
+            }
+          ]
+          actions: [
+            {
+              name: 'CacheExpiration'
+              parameters: {
+                cacheBehavior: 'BypassCache'
+                cacheType: 'All'
+                '@odata.type': '#Microsoft.Azure.Cdn.Models.DeliveryRuleCacheExpirationActionParameters'
+              }
+            }
+          ]
         }
       ]
     }
@@ -178,7 +198,7 @@ resource cdnEndpoint 'Microsoft.Cdn/profiles/endpoints@2020-09-01' = {
 
 resource cdnCustomDomain 'Microsoft.Cdn/profiles/endpoints/customDomains@2020-09-01' = {
   parent: cdnEndpoint
-  name: customDomainName
+  name: 'custom-domain-${uniqueId}'
   properties: {
     hostName: hostname
   }
@@ -197,7 +217,7 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2018-
 
 // https://github.com/Azure/azure-docs-bicep-samples/blob/main/samples/deployment-script/deploymentscript-keyvault-mi.bicep
 resource managedIdentityRole 'Microsoft.Authorization/roleAssignments@2021-04-01-preview' = {
-  name: guid(resourceGroup().id, managedIdentity.id, contributorRoleDefinition.id)
+  name: guid(resourceGroup().id, managedIdentity.id, contributorRoleDefinition.id, uniqueId)
   properties: {
     principalId: managedIdentity.properties.principalId
     roleDefinitionId: contributorRoleDefinition.id
@@ -246,5 +266,6 @@ resource cdnEnableCustomHttps 'Microsoft.Resources/deploymentScripts@2020-10-01'
 }
 
 output cdnOrigin string = cdnEndpoint.properties.originHostHeader
+output cdnEndpoint string = cdnEndpoint.properties.hostName
 output publicUrl string = cdnCustomDomain.properties.hostName
 output txtDomainVerification string = site.properties.customDomainVerificationId
